@@ -33,6 +33,8 @@ while(1): #start listening for connections
 			
 			#creat and send message to client
 			sendText = raw_input(username + ': ')
+			if len(sendText) > 500:
+				sendText = sendText[:500]
 			connectionSocket.send(username + ': ' + sendText)
 			#look to see if we are sending a disconnect
 			if sendText.find("\quit") != -1:

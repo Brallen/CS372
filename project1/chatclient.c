@@ -45,7 +45,10 @@ int main(int argc, char* argv[]){
 
 		//create and send message
 		printf("%s", username);
-		fgets(buffer, 500, stdin);
+		fgets(buffer, 501, stdin); //501 cause of newline
+		//make input only 500 characters and if longer get rid of it
+		if(!strchr(buffer, '\n')) //newline does not exist
+		    while(fgetc(stdin)!='\n');//discard until newline
 		strcpy(sendText,username); //add username
 		strcat(sendText, buffer); //add message
 		sendText[strcspn(sendText, "\n")] = '\0'; //replace newline with null
