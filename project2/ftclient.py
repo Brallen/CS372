@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 #### CODE WAS USED FROM THE SLIDES ####
 #### THIS PROGRAM WAS TESTED ON FLIP3 ####
 from socket import *
@@ -12,7 +11,7 @@ else:
 #get the username and make sure its not too long
 username = raw_input('Enter username: ')
 if len(username) > 10:
-	print 'name is too long'
+	print 'name is too long' 
 	exit(1)
 
 #set up the socket to listen
