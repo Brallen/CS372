@@ -6,15 +6,17 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h> 
+#include <dirent.h>
 
-void sendDirectory(int);
+void sendDirectory(int, char*);
 void error(const char *msg){
 	perror(msg);
 	exit(1);
 } // Error function used for reporting issues
 
 int main(int argc, char *argv[]){
-	int listenSocketFD, establishedConnectionFD, portNumber, charsRead, spawnPid, childExitMethod, j, i;
+	int listenSocketFD, establishedConnectionFD, portNumber, charsRead;
 	socklen_t sizeOfClientInfo;
 	char buffer[70005], message[70005], file[70005], dataPort[7], command[3];
 	struct sockaddr_in serverAddress, clientAddress;
@@ -75,16 +77,14 @@ int main(int argc, char *argv[]){
 		charsRead = send(establishedConnectionFD, "1", 1, 0);
 
 		//see what we got
-		if (strncmp(buffer, "-l", 2) == 0){
+		if (strncmp(command, "-l", 2) == 0){
 			//send the list of the directory contents
 			//charsRead = send(establishedConnectionFD, "wrong server@", 13, 0);
-			sendDirectory(strtol(dataPort, NULL, 10));
-			i = 0; //once done with that end the loop
-		}else if(strncmp(buffer, "-g", 2) == 0){
+			sendDirectory(strtol(dataPort, NULL, 10), inet_ntoa(clientAddress.sin_addr));
+		}else if(strncmp(command, "-g", 2) == 0){
 			//send the file that the client wanted on different port
 			//charsRead = send(establishedConnectionFD, "wrong server@", 13, 0);
 			
-			i = 0; //once done with that end the loop
 		}
 		close(establishedConnectionFD); // Close the existing socket which is connected to the client
 		printf("Connection with %s closed\n", inet_ntoa(clientAddress.sin_addr));
@@ -95,7 +95,49 @@ int main(int argc, char *argv[]){
 	return 0;
 }
 
-void sendDirectory(int dataPort){
-	printf("Data Port: %d", dataPort);
+void sendDirectory(int dataPort, char* hostname){
+	char buffer[20];
+	int socketFD, portNumber, charsWritten, charsRead;
+	struct sockaddr_in serverAddress;
+	struct hostent* serverHostInfo;	
+	DIR* directory;
+	struct dirent *file; 
+	
+	// Set up the server address struct
+	memset((char*)&serverAddress, '\0', sizeof(serverAddress)); // Clear out the address struct
+	serverAddress.sin_family = AF_INET; // Create a network-capable socket
+	serverAddress.sin_port = htons(dataPort); // Store the port number
+	serverHostInfo = gethostbyname(hostname); // Convert the machine name into a special form of address
+	if (serverHostInfo == NULL) { fprintf(stderr, "CLIENT: ERROR, no such host\n"); exit(0); }
+	memcpy((char*)&serverAddress.sin_addr.s_addr, (char*)serverHostInfo->h_addr, serverHostInfo->h_length); // Copy in the address
+	
+	// Set up the socket
+	socketFD = socket(AF_INET, SOCK_STREAM, 0); // Create the socket
+	if (socketFD < 0) error("CLIENT: ERROR opening socket");
+	
+	usleep(10); //delay 10 milliseconds to allow for the client to set up its portion
+
+	// Connect to server
+	if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) // Connect socket to address
+		error("CLIENT: ERROR connecting");
+
+	// get the file names and send them to the client
+	// there can be a max file name length of 20 inluding the '.txt'
+	directory = opendir ("./");
+
+	if (directory != NULL){
+		while ((file = readdir (directory)) != NULL) {
+			if (strncmp(file->d_name + strlen(file->d_name) - 4, ".txt", 4) == 0) { //find out if the current file is a .txt
+				memset(buffer, '\0', 20); //clear out the buffer
+				strcpy(buffer, file->d_name); //put in the .txt file name
+				printf("sending %s\n", buffer);
+				charsWritten = send(socketFD, buffer, 20, 0); //send the file to the client
+			}
+		}
+		//when we've sent all the .txt files let the client know and close the directory
+		charsWritten = send(socketFD, "@@", 20, 0);
+		(void) closedir (directory);
+	}
+	
 	return;
 }
