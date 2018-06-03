@@ -18,7 +18,6 @@ def clientConnector(hostname, serverPort, command, filename, dataPort):
 		printDir(dataPort)
 	else:
 		getFile(dataPort, filename)
-	print 'done'
 	clientSocket.close()
 
 def printDir(dataPort):
@@ -26,48 +25,45 @@ def printDir(dataPort):
 	serverSocket = socket(AF_INET, SOCK_STREAM)
 	serverSocket.bind(('',dataPort))
 	serverSocket.listen(1)
-	print 'The server is ready on port %d' % dataPort
 
 	connectionSocket, addr = serverSocket.accept() #block and wait for connection
-	print 'connection established' #let user know a connection has been made
-
+	print 'Receiving Directory Contents'
 	buffer = connectionSocket.recv(20) #get first file or @@ if there are no .txt files
 	while "@@" not in buffer: #while we don't have just @@
 		print buffer #print what we got. Printing first means we don't print out the @@
 		buffer = connectionSocket.recv(20)
 
 	connectionSocket.close() #close the connection and then go back to listening
-	print 'closing data socket'
 
 def getFile(dataPort, filename): #function still  struggles with README.txt but handles all others fine?
 	#set up the socket to listen
 	serverSocket = socket(AF_INET, SOCK_STREAM)
 	serverSocket.bind(('',dataPort))
 	serverSocket.listen(1)
-	print 'The server is ready on port %d' % dataPort
-	
+
 	connectionSocket, addr = serverSocket.accept() #block and wait for connection
-	print 'connection established' #let user know a connection has been made
 
 	if os.path.exists(filename):
 		if raw_input('File already exists!!! overwrite? Y/n: ').lower() != 'y': #this line will always cancel
 			connectionSocket.send('0')
 			connectionSocket.close() #close the connection and then go back to listening
 			return
-	
-	connectionSocket.send('1')
-	file = open(filename, 'w+')
-	fileContents = ""
-	buffer = connectionSocket.recv(1) #get first file or @@ if there are no .txt files
-	while "@" not in buffer: #while we don't have just @@
-		fileContents = fileContents + buffer #add what we got to the total
-		file.write(buffer)
-		buffer = connectionSocket.recv(1)
 
-	print fileContents
-	file.close()
+	connectionSocket.send('1') #say ready to receive
+	buffer = connectionSocket.recv(1) #get if file exists
+	if buffer == "*":
+		print 'Receiving file: %s' % filename
+		file = open(filename, 'w+') #open or create the file for writing
+		buffer = connectionSocket.recv(1) #get part of file
+		while "@" not in buffer: #while we don't have just @
+			file.write(buffer) #put the buffer in the file
+			buffer = connectionSocket.recv(1) #and get more
+		print 'Transfer complete'
+		file.close() 
+	else:
+		print 'Error: file does not exist'
+			
 	connectionSocket.close() #close the connection and then go back to listening
-	print 'closing data socket'
 
 if __name__ == "__main__":
 	#args: <SERVER_HOST>, <SERVER_PORT>, <COMMAND>, if -g:(<FILENAME>), <DATA_PORT>

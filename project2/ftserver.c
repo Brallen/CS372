@@ -57,14 +57,12 @@ int main(int argc, char *argv[]){
 		if (establishedConnectionFD < 0)
 			error("ERROR on accept");
 
-		printf("IN CHILD\n");
 		// Get the dataPort from the client and display it
 		memset(buffer, '\0', 70005);
 		while (strstr(dataPort, "@") == NULL){ //look for @ to know when client port number has ended
 			charsRead = recv(establishedConnectionFD, buffer, 1, 0); // Read the client's port from the socket
 			strcat(dataPort, buffer);
 		}	
-		printf("dataPort: %d\n", atoi(dataPort));
 		charsRead = send(establishedConnectionFD, "1", 1, 0);
 
 		//get the command from the client and display it
@@ -74,8 +72,6 @@ int main(int argc, char *argv[]){
 			strcat(command, buffer);
 		}
 		command[2] = '\0'; //set the last char to a null terminator instead of @
-		printf("command: %s\n", command);
-
 		charsRead = send(establishedConnectionFD, "1", 1, 0);
 
 		// get the filename from the client and display it
@@ -85,18 +81,19 @@ int main(int argc, char *argv[]){
 			strcat(filename, buffer);
 		}
 		filename[strcspn(filename, "@")] = '\0'; //set the last bit to a null terminator instead of @
-		printf("filename: %s\n", filename);
 
 		//see what we got
 		if (strncmp(command, "-l", 2) == 0){
 			//send the list of the directory contents
+			printf("List Directory Requested on %s\n", inet_ntoa(clientAddress.sin_addr));
 			sendDirectory(strtol(dataPort, NULL, 10), inet_ntoa(clientAddress.sin_addr));
 		}else if(strncmp(command, "-g", 2) == 0){
 			//send the file that the client wanted on different port
+			printf("'%s' file requested on %s\n", filename, inet_ntoa(clientAddress.sin_addr));
 			sendfile(strtol(dataPort, NULL, 10), inet_ntoa(clientAddress.sin_addr), filename);
 		}
 		close(establishedConnectionFD); // Close the existing socket which is connected to the client
-		printf("Connection with %s closed\n", inet_ntoa(clientAddress.sin_addr));
+		printf("Connection with %s closed\n\n", inet_ntoa(clientAddress.sin_addr));
 	}
 
 	close(listenSocketFD); // Close the listening socket
@@ -123,7 +120,7 @@ void sendDirectory(int dataPort, char* hostname){
 	socketFD = socket(AF_INET, SOCK_STREAM, 0); // Create the socket
 	if (socketFD < 0) error("CLIENT: ERROR opening socket");
 	
-	usleep(10); //delay 10 milliseconds to allow for the client to set up its portion
+	usleep(300); //delay 200 milliseconds to allow for the client to set up its portion
 
 	// Connect to server
 	if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) // Connect socket to address
@@ -134,11 +131,11 @@ void sendDirectory(int dataPort, char* hostname){
 	directory = opendir ("./");
 
 	if (directory != NULL){
+		printf("Sending Directory Contents\n");
 		while ((file = readdir (directory)) != NULL) {
 			if (strncmp(file->d_name + strlen(file->d_name) - 4, ".txt", 4) == 0) { //find out if the current file is a .txt
 				memset(buffer, '\0', 20); //clear out the buffer
 				strcpy(buffer, file->d_name); //put in the .txt file name
-				printf("sending %s\n", buffer);
 				charsWritten = send(socketFD, buffer, 20, 0); //send the file to the client
 			}
 		}
@@ -146,6 +143,7 @@ void sendDirectory(int dataPort, char* hostname){
 		charsWritten = send(socketFD, "@@", 20, 0);
 		(void) closedir (directory);
 	}
+	close(socketFD);
 }
 
 void sendfile(int dataPort, char* hostname, char* filename){
@@ -167,7 +165,7 @@ void sendfile(int dataPort, char* hostname, char* filename){
 	socketFD = socket(AF_INET, SOCK_STREAM, 0); // Create the socket
 	if (socketFD < 0) error("CLIENT: ERROR opening socket");
 	
-	usleep(200); //delay 30 milliseconds to allow for the client to set up its portion
+	usleep(300); //delay 200 milliseconds to allow for the client to set up its portion
 
 	// Connect to server
 	if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) // Connect socket to address
@@ -177,21 +175,23 @@ void sendfile(int dataPort, char* hostname, char* filename){
 	if(buffer[0] == '1'){
 		// get the file and send it to the client
 		if (file = fopen(filename, "r")){
-			do{
-				memset(buffer, '\0', 11);
-				fgets(buffer, 2, (FILE*)file);
-				//printf("buffer: %s\n", buffer);
-				//printf("the length is: %d\n", strlen(buffer));
-				if(strlen(buffer) == 0) continue;
-				charsWritten = send(socketFD, buffer, 1, 0);
-			}while(!feof(file));
+			send(socketFD, "*", 1, 0); //say that the file exists
+			printf("Sending File: %s\n", filename);
 
+			do{
+				memset(buffer, '\0', 11); //clear out buffer
+				fgets(buffer, 2, (FILE*)file); //get characters in the file
+				if(strlen(buffer) == 0) continue; //for some reason the last send contains no characters so this fixes it
+				charsWritten = send(socketFD, buffer, 1, 0); //send what we have
+			}while(!feof(file)); //go until at the end of the file
 
 			fclose(file);
 		}else{
 			//send that there was an error getting the file
-			return;
+			printf("Error: File does not exist\n");
+			send(socketFD, "`", 1, 0);
 		}
-		charsWritten = send(socketFD, "@", 1, 0);
+		charsWritten = send(socketFD, "@", 1, 0); //let know that we're done sending
 	}
+	close(socketFD);
 }
