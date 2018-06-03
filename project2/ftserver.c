@@ -10,6 +10,7 @@
 #include <dirent.h>
 
 void sendDirectory(int, char*);
+void sendfile(int, char*, char*);
 void error(const char *msg){
 	perror(msg);
 	exit(1);
@@ -18,7 +19,7 @@ void error(const char *msg){
 int main(int argc, char *argv[]){
 	int listenSocketFD, establishedConnectionFD, portNumber, charsRead;
 	socklen_t sizeOfClientInfo;
-	char buffer[70005], message[70005], file[70005], dataPort[7], command[3];
+	char buffer[70005], message[70005], filename[21], dataPort[7], command[3];
 	struct sockaddr_in serverAddress, clientAddress;
 
 	if (argc != 2){
@@ -72,23 +73,30 @@ int main(int argc, char *argv[]){
 			charsRead = recv(establishedConnectionFD, buffer, 1, 0); // Read the client's port from the socket
 			strcat(command, buffer);
 		}
-		command[2] = '\0'; //set the last bit to a null terminator instead of @
+		command[2] = '\0'; //set the last char to a null terminator instead of @
 		printf("command: %s\n", command);
+
 		charsRead = send(establishedConnectionFD, "1", 1, 0);
+
+		// get the filename from the client and display it
+		memset(filename, '\0', 21); //clear out the filename. since 20 characters in filename 21 is going to be \0
+		while (strstr(filename, "@") == NULL){ //look for @ to know when client port number has ended
+			charsRead = recv(establishedConnectionFD, buffer, 1, 0); // Read the client's port from the socket
+			strcat(filename, buffer);
+		}
+		filename[strcspn(filename, "@")] = '\0'; //set the last bit to a null terminator instead of @
+		printf("filename: %s\n", filename);
 
 		//see what we got
 		if (strncmp(command, "-l", 2) == 0){
 			//send the list of the directory contents
-			//charsRead = send(establishedConnectionFD, "wrong server@", 13, 0);
 			sendDirectory(strtol(dataPort, NULL, 10), inet_ntoa(clientAddress.sin_addr));
 		}else if(strncmp(command, "-g", 2) == 0){
 			//send the file that the client wanted on different port
-			//charsRead = send(establishedConnectionFD, "wrong server@", 13, 0);
-			
+			sendfile(strtol(dataPort, NULL, 10), inet_ntoa(clientAddress.sin_addr), filename);
 		}
 		close(establishedConnectionFD); // Close the existing socket which is connected to the client
 		printf("Connection with %s closed\n", inet_ntoa(clientAddress.sin_addr));
-
 	}
 
 	close(listenSocketFD); // Close the listening socket
@@ -138,6 +146,52 @@ void sendDirectory(int dataPort, char* hostname){
 		charsWritten = send(socketFD, "@@", 20, 0);
 		(void) closedir (directory);
 	}
+}
+
+void sendfile(int dataPort, char* hostname, char* filename){
+	char buffer[11];
+	int socketFD, portNumber, charsWritten, charsRead;
+	struct sockaddr_in serverAddress;
+	struct hostent* serverHostInfo;	
+	FILE *file;
 	
-	return;
+	// Set up the server address struct
+	memset((char*)&serverAddress, '\0', sizeof(serverAddress)); // Clear out the address struct
+	serverAddress.sin_family = AF_INET; // Create a network-capable socket
+	serverAddress.sin_port = htons(dataPort); // Store the port number
+	serverHostInfo = gethostbyname(hostname); // Convert the machine name into a special form of address
+	if (serverHostInfo == NULL) { fprintf(stderr, "CLIENT: ERROR, no such host\n"); exit(0); }
+	memcpy((char*)&serverAddress.sin_addr.s_addr, (char*)serverHostInfo->h_addr, serverHostInfo->h_length); // Copy in the address
+	
+	// Set up the socket
+	socketFD = socket(AF_INET, SOCK_STREAM, 0); // Create the socket
+	if (socketFD < 0) error("CLIENT: ERROR opening socket");
+	
+	usleep(200); //delay 30 milliseconds to allow for the client to set up its portion
+
+	// Connect to server
+	if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) // Connect socket to address
+		error("CLIENT: ERROR connecting");
+
+	recv(socketFD, buffer, 1, 0); // Read the client's port from the socket
+	if(buffer[0] == '1'){
+		// get the file and send it to the client
+		if (file = fopen(filename, "r")){
+			do{
+				memset(buffer, '\0', 11);
+				fgets(buffer, 2, (FILE*)file);
+				//printf("buffer: %s\n", buffer);
+				//printf("the length is: %d\n", strlen(buffer));
+				if(strlen(buffer) == 0) continue;
+				charsWritten = send(socketFD, buffer, 1, 0);
+			}while(!feof(file));
+
+
+			fclose(file);
+		}else{
+			//send that there was an error getting the file
+			return;
+		}
+		charsWritten = send(socketFD, "@", 1, 0);
+	}
 }
